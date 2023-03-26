@@ -1,1 +1,9 @@
 # vic20-play
+
+My playground for VIC20 hacking.
+
+- GFX modes
+- Parport driver...
+- CCGMS terminal program to come... 
+
+Not because it makes sense, but because it can be done...
