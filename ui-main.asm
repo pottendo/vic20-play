@@ -80,10 +80,8 @@ _col: .byte $00
 
 cmd3:
     memset_(vic20.vic_charset, 0, $0f00)
-    memset(vic20.vic_charset + 8 + 16 * 239, _f, 8)
-    inc _f
+//    memset(vic20.vic_charset + 8 + 16 * 239, "some col" , 8)   // address last 8x8 block +8 => lower half of 8x16 char, 240 chars on screen 0-16 must be held free for videoream
     rts
-_f: .byte 00
 
 cmd4:
     poke8_(_xt, 32)
