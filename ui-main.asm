@@ -10,8 +10,9 @@ BasicUpstart(main_entry)
 
 // .segment _main
 main_entry:
-    BoC(7)
+    BoC(6)
     BgC(1)
+    AuxC(1)
     show_screen(1, str.screen1)
     jsr loopmenu
 exit:
@@ -144,8 +145,10 @@ _x1t: .word 0
 _x2t: .word 0
 
 cmd6:
+    BoCinc()
     rts
 cmd7:
+    AuxCinc()
     rts
 unset:
     rts

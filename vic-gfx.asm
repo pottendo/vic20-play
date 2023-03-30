@@ -9,6 +9,24 @@
     sta vic20.vic + $f
 }
 
+.macro BoCinc ()
+{
+    pha
+    php
+    lda vic20.vic + $f
+    pha
+    and #%11111000
+    sta vic20.vic + $f
+    pla
+    clc
+    adc #%00000001
+    and #%00000111
+    ora vic20.vic + $f
+    sta vic20.vic + $f    
+    plp
+    pla
+}
+
 .macro BgC (c)
 {
     .var val = c << 4;
@@ -18,17 +36,48 @@
     sta vic20.vic + $f
 }
 
-.macro BoCinc ()
+.macro BgCinc ()
 {
     pha
     php
     lda vic20.vic + $f
+    pha
+    and #%00001111
+    sta vic20.vic + $f
+    pla
     clc
-    and #%11111000
-    adc #%00000001
-    and #%00000111
+    adc #%00010000
+    and #%11110000
     ora vic20.vic + $f
     sta vic20.vic + $f    
+    plp
+    pla
+}
+
+
+.macro AuxC (c)
+{
+    .var val = c << 4;
+    lda vic20.vic + $e
+    and #%00001111
+    ora #val
+    sta vic20.vic + $e
+}
+
+.macro AuxCinc ()
+{
+    pha
+    php
+    lda vic20.vic + $e
+    pha
+    and #%00001111
+    sta vic20.vic + $e
+    pla
+    clc
+    adc #%00010000
+    and #%11110000
+    ora vic20.vic + $e
+    sta vic20.vic + $e    
     plp
     pla
 }
