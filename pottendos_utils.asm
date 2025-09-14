@@ -36,6 +36,7 @@
     .label IRQ = $ea31
     .label NMI = $fe47      // orignal address: $fe47, $fe56
     .label CONTNMI = $fe56  // jmp after save regs and some CIA1 handling
+    .label CONTIRQ = $eabf
     .label IRQ_VEC = $314
     .label NMI_VEC = $318
     .label BSOUT = $ffd2
@@ -59,24 +60,33 @@
     .label SIN = $e26b      // SIN(FAC1), in Radians
 }
 
+.namespace VIA1 {
+    .label base = $9110
+    .label portB = base + 0
+    .label portA = base + 1
+    .label DDRB = base + 2
+    .label DDRA = base + 3
+    .label AUX = base + $b
+    .label PCR = base + $c
+    .label IFR = base + $d    
+    .label IER = base + $e
+}
+
+.namespace VIA2 {
+    .label base = $9120
+}
+
 .namespace VIC {
     .label base = $9000
+    .label HCENT = base + 0
+    .label VCENT = base + 1
+    .label COLS = base + 2
+    .label ROWS = base + 3
+    .label RASTER = base + 4
     .label BoC = base + $f
     .label BgC = base + $f
-
-
-    .label MEM = base + $18
-    .label IRR = base + $19
-    .label IMR = base + $1A
-    .label CR1 = base + $11
-    .label RASTER = base + $12
-    .label SprEnable = base + $15
-    .label CR2 = base + $16
-    .label VideoAdr = base + $18
-    .label SprExpY = base + $17
-    .label SprExpX = base + $1D
-    .label SprColBase = base + $27
 }
+
 
 // utility functions
 // .segment _pottendo_utils 
@@ -113,7 +123,7 @@ _wscreen:
 _readstr:
     ldx #$00
  _nc:
-    jsr $E112
+    jsr STD.BASIN
     cmp #$0d
     beq !+
 _rdst:
@@ -205,6 +215,29 @@ tmp:        .word $0000
     tax
     pla
 }
+
+delcnter: .word $00ff
+.macro delay(n)
+{
+    .if (n == 0)
+    {   
+        .error "delay with 0 length"
+    }
+    pha
+    php
+    poke16_(delcnter, n)
+!:  
+    dec delcnter
+    bne !-
+    lda delcnter + 1
+    beq !+
+    dec delcnter + 1
+    jmp !-
+!:
+    plp
+    pla
+}
+
 
 .macro jsr_ind(addr)
 {
@@ -733,4 +766,85 @@ clhb:
         poke8_(P.joy_ack, 1)
     out:
     }
+}
+
+.macro BoC (c)
+{
+    lda vic20.vic + $f
+    and #%11111000
+    ora #c
+    sta vic20.vic + $f
+}
+
+.macro BoCinc ()
+{
+    pha
+    php
+    lda vic20.vic + $f
+    pha
+    and #%11111000
+    sta vic20.vic + $f
+    pla
+    clc
+    adc #%00000001
+    and #%00000111
+    ora vic20.vic + $f
+    sta vic20.vic + $f    
+    plp
+    pla
+}
+
+.macro BgC (c)
+{
+    .var val = c << 4;
+    lda vic20.vic + $f
+    and #%00001111
+    ora #val
+    sta vic20.vic + $f
+}
+
+.macro BgCinc ()
+{
+    pha
+    php
+    lda vic20.vic + $f
+    pha
+    and #%00001111
+    sta vic20.vic + $f
+    pla
+    clc
+    adc #%00010000
+    and #%11110000
+    ora vic20.vic + $f
+    sta vic20.vic + $f    
+    plp
+    pla
+}
+
+
+.macro AuxC (c)
+{
+    .var val = c << 4;
+    lda vic20.vic + $e
+    and #%00001111
+    ora #val
+    sta vic20.vic + $e
+}
+
+.macro AuxCinc ()
+{
+    pha
+    php
+    lda vic20.vic + $e
+    pha
+    and #%00001111
+    sta vic20.vic + $e
+    pla
+    clc
+    adc #%00010000
+    and #%11110000
+    ora vic20.vic + $e
+    sta vic20.vic + $e    
+    plp
+    pla
 }

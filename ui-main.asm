@@ -4,6 +4,8 @@
 BasicUpstart(main_entry)
 
 #import "globals.asm"
+#import "userport-drv.asm"
+#import "cmds.asm"
 .const DELAYVAL = $2000
 
 *= $2000 "Program"
@@ -14,6 +16,7 @@ main_entry:
     BgC(1)
     AuxC(1)
     show_screen(1, str.screen1)
+    jsr parport.init
     jsr loopmenu
 exit:
     rts
@@ -146,11 +149,14 @@ cmd6:
     BoCinc()
     rts
 cmd7:
-    AuxCinc()
-    rts
-unset:
+    print(str.inputtext)
+    rstring(cmd_args)
+    jsr echo
     rts
 cmd8:
+    print(str.inputnumber)
+    rnum(cmd_args)
+    jsr dump2
     rts
 cmd9:
     print(str.finished)
@@ -164,6 +170,12 @@ cmdterminal:
     rts
     
 cmdirc:
+    rts
+
+cmdr:
+    print(str.inputnumber)
+    rnum(cmd_args)
+    jsr cmdread    
     rts
 
 delay:
@@ -187,6 +199,7 @@ cmd_vec:
     cmdp('9', cmd9)
     cmdp('T', cmdterminal)
     cmdp('I', cmdirc)
+    cmdp('R', cmdr)
     cmdp($ff, lastcmd)
 
 .macro cmdp(c, addr)
@@ -259,7 +272,7 @@ inputtext:
     .text "TEXT:"
     .byte $00
 inputnumber:
-    .text "#TO READ:"
+    .text "#TO XFER:"
     .byte $00
 finished: .text "FINISHED."
     .byte $00
@@ -283,11 +296,11 @@ screen1:
 .byte $0d
 .text "6) MANDELBROT"
 .byte $0d
-//.text "7) TOGGLE ATN"
-//.byte $0d
+.text "7) ECHO VIC20->ESP->VIC20"
+.byte $0d
 .text "8) DUMP DATA C64->ESP"
 .byte $0d
-.text "T) TERMINAL"
+.text "R) READ/WRITE/COMP"
 .byte $0d
 .text "I) IRC"
 .byte $0d

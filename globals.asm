@@ -6,3 +6,6 @@
     .label vic_colorram = 37888 // or 38400 if vic+2/bit7 is 0 
     .label vic_videoram = $1000
 }
+.namespace gl {
+    .label dest_mem = vic20.vic_charset
+}
