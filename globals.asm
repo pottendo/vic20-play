@@ -7,5 +7,5 @@
     .label vic_videoram = $1000
 }
 .namespace gl {
-    .label dest_mem = vic20.vic_charset
+    .label dest_mem = $3000
 }

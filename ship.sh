@@ -1,5 +1,5 @@
 #!/bin/bash
-PI1541=http://192.168.188.33
+export PI1541=http://192.168.188.33
 echo ${PI1541}
 rm 0uCoProc.d64
 c1541 -format ucoproc,42 d64 0uCoProc.d64 -attach 0uCoProc.d64 -write ui-main.prg ui 

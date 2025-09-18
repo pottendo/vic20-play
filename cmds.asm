@@ -68,7 +68,7 @@ cmdread:
     ldx #6
     uport_write_f(cmd_lit)
     uport_sread(gl.dest_mem, cmd_args)
-    delay(2)
+    delay(100)
     uport_write(gl.dest_mem, cmd_args) // dump back what we read
     rts
 

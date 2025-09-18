@@ -317,18 +317,20 @@ vic_isr:
     lda VIA1.IFR
     and #%00010000
     beq !out+
-    BoCinc()                     // show we're in vic_isr
+    vic_busy(1)  // tell esp we're busy
+    //BoCinc()                     // show we're in vic_isr
+    lda VIA1.portB
+    sta P.zpp2 + 1
     poke8_(P.zpp2, 1)
+    
     restore_regs()
     rti
 !out:
-    BgCinc()
-    restore_regs()
-    rti
-    jmp STD.CONTIRQ
+    //BgCinc()
+    jmp $feb2    // jump to original vic20 NMI handler
 
 setup_read:
-    //jsr rind
+    jsr rind
     poke8_(VIA1.DDRB, $00)           // direction bits 0 -> input
     clearbits(VIA1.PCR, %11101111)  // CB1 High->Low edge trigger
     //setbits(VIA1.PCR, %00010000)  // CB1 as interrupt source
@@ -337,10 +339,7 @@ setup_read:
 //#if LATER    
     poke8_(P.zpp2, 0)
     sei
-    lda #<vic_isr
-    sta $0314
-    lda #>vic_isr
-    sta $0315
+    poke16_(STD.NMI_VEC, vic_isr)
     cli
 //#endif
     vic_write(0)
@@ -349,9 +348,10 @@ setup_read:
 close_read:
 
     sei
-    poke16_($0314, STD.CONTIRQ)
+    poke16_(STD.NMI_VEC, STD.CONTNMI)
     cli
-    //jsr cind
+    jsr cind
+    setbits(VIA1.IER, %00010000)  // clear interrupt on CB1
     vic_busy(0)
 
     rts
@@ -359,19 +359,19 @@ close_read:
 sync_read:
     jsr setup_read
     ldy #$00
+    jmp ft
 !next:
-    vic_busy(0)   // tell esp we're ready to receive
-!:  
-    //BoCinc()
+    BoCinc()                     // show we're in sync_read
+    vic_handshake()
+ft: vic_busy(0)   // tell esp we're ready to receive
+!: 
+    //BoCinc()                     // show we're in sync_read
     //lda VIA1.IFR
     //and #%00010000
     lda P.zpp2
     beq !-
     poke8_(P.zpp2, 0)
-    vic_busy(1)  // tell esp we're busy
-    vic_handshake()
-    
-    lda VIA1.portB
+    lda P.zpp2+1
     sta (buffer), y
     inc buffer      
     bne !+
@@ -379,29 +379,26 @@ sync_read:
 !:
     cmp16(buffer, len) 
     bcc !next-
-    
+    vic_handshake() // ACK last char
     jmp close_read
 
 // write routines
 setup_write:
     sei
     uport_stop()                     // ensure that NMIs are not handled    
-    //jsr wind                       
+    jsr wind                       
     vic_write(1)
     poke8_(VIA1.DDRB, $ff)           // direction bits 1 -> output
     vic_busy(0)
-    
     rts
 
 close_write:
     vic_busy(0)
     poke8_(VIA1.DDRB, $00)           // set for input, to avoid conflict by mistake
     vic_write(0)
-wif:
     jsr cind                         
     cli
     rts
-
 
 // lesser optimized, allowing up to 64k writes
 write_buffer:
@@ -410,7 +407,6 @@ write_buffer:
     bne cont
     lda len
     bne cont
-    rts
 cont:
     jsr setup_write
 loop:    
@@ -421,7 +417,7 @@ loop:
 //   lda #%10000     // check if receiver is ready to accept next char
 //    bit CIA2.ICR
 //    beq !-
-
+    BgCinc()                     // show we're in write_buffer
     inc buffer
     bne !+
     inc buffer + 1

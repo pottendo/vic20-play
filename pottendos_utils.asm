@@ -35,8 +35,13 @@
 
     .label IRQ = $ea31
     .label NMI = $fe47      // orignal address: $fe47, $fe56
+#if VIC20
+    .label CONTNMI = $fead
+    .label CONTIRQ = $eabf
+#else    
     .label CONTNMI = $fe56  // jmp after save regs and some CIA1 handling
     .label CONTIRQ = $eabf
+#endif    
     .label IRQ_VEC = $314
     .label NMI_VEC = $318
     .label BSOUT = $ffd2
