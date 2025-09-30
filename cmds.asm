@@ -54,6 +54,12 @@ echo:
     rts
 
 dump2:
+    ldx #$20
+!:  txa
+    sta gl.dest_mem, x
+    dex
+    bne !-
+    stx gl.dest_mem
     lda #$05
     jsr prep_cmd
     ldx #6
@@ -67,21 +73,37 @@ cmdread:
     jsr prep_cmd
     ldx #6
     uport_write_f(cmd_lit)
-    uport_sread(gl.dest_mem, cmd_args)
+    //ldx cmd_args
+    uport_read(gl.dest_mem, cmd_args)
     delay(100)
     uport_write(gl.dest_mem, cmd_args) // dump back what we read
     rts
 
-#if LATER
+cmdtest:
+    jsr parport.poll_isr
+    rts
 
+// ISR read
 dump1:
     lda #$02
     jsr prep_cmd
     ldx #6
     uport_write_f(cmd_lit)
-do_rcv:
     uport_read(gl.dest_mem, cmd_args)
     rts
+
+// synchronous read - waits until all bytes are received
+dump3:
+    lda #$02
+    jsr prep_cmd
+    ldx #6
+    uport_write_f(cmd_lit)
+    ldx cmd_args
+    uport_sread_f(gl.dest_mem) //, cmd_args)
+    rts
+
+#if LATER
+
 mandel:
     lda #$04
     jsr prep_cmd
@@ -96,13 +118,6 @@ irc_:
     jsr prep_cmd
     ldx #4
     uport_write_f(cmd_lit)
-    rts
-dump3:
-    lda #$02
-    jsr prep_cmd
-    ldx #6
-    uport_write_f(cmd_lit)
-    uport_sread(gl.dest_mem, cmd_args)
     rts
 do_arith:
     lda #$08

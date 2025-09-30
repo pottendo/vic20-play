@@ -495,6 +495,7 @@ zero:
 {
     .if (clscr == 1) {
         jsr STD.CLSCR
+        memset_(vic20.vic_colorram, 0, 512)
     }
     lda #<what
     sta P.zpp1

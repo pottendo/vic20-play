@@ -12,8 +12,8 @@ BasicUpstart(main_entry)
 
 // .segment _main
 main_entry:
-    BoC(6)
-    BgC(1)
+    //BoC(6)
+    //BgC(1)
     AuxC(1)
     show_screen(1, str.screen1)
     jsr parport.init
@@ -167,9 +167,18 @@ lastcmd:
     rts
 
 cmdterminal:
+    jsr cmdtest
     rts
     
 cmdirc:
+    print(str.inputnumber)
+    rnum(cmd_args)
+    sta loopc
+    poke16_(cmd_args, 160) //(1024 * 4) - 1)
+!:  jsr dump1
+    jsr delay
+    dec loopc
+    bne !-
     rts
 
 cmdr:
@@ -296,13 +305,15 @@ screen1:
 .byte $0d
 .text "6) MANDELBROT"
 .byte $0d
-.text "7) ECHO VIC20->ESP->VIC20"
+.text "7) ECHO VIC->ESP->VIC"
 .byte $0d
 .text "8) DUMP DATA C64->ESP"
 .byte $0d
 .text "R) READ/WRITE/COMP"
 .byte $0d
-.text "I) IRC"
+.text "I) ITERATIVE READ"
+.byte $0d
+.text "T) TEST PORTS"
 .byte $0d
 .text "9) EXIT"
 .byte $0d

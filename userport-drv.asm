@@ -3,7 +3,6 @@
 
 //#define HANDLE_MEM_BANK      // enable this if kernal or I/O is potentially banked out
 
-#if LATER
 // dest: addr, len: scalar
 .macro uport_read_(dest, len) {
     lda #<dest
@@ -31,6 +30,8 @@
     jsr parport.start_isr
     lda parport.read_pending    // busy wait until read is completed
     bne *-3
+    vic_write(1)
+    
 }
 
 // dest: addr, len: addr
@@ -43,6 +44,7 @@
     jsr parport.start_isr       // launch interrupt driven read
     lda parport.read_pending    // busy wait until read is completed
     bne *-3
+    vic_write(1)
 }
 
 .macro uport_lread(dest)
@@ -60,7 +62,6 @@
     poke16_(parport._rf + 1, dest)   
     jsr parport.sync_read_f
 }
-#endif // LATER
 
 // dest: addr, len: addr
 .macro uport_sread(dest, len)
@@ -127,6 +128,14 @@
     clearbits(VIA1.portA, %10111111)    // Trigger PC2
     setbits(VIA1.portA, %01000000)
 }
+
+.macro clear_cb1()
+{
+!:  lda VIA1.portB
+    lda VIA1.IFR
+    and #%00010000
+    bne !-
+}
 // .segment _par_drv
 
 parport: {
@@ -143,18 +152,18 @@ _boc_save:      .byte $00
 init:
     lda VIC.BoC
     sta _boc_save
-    BoC(4)                     // show we're in init
+    //BoC(4)                     // show we're in init
     poke8_(read_pending, 0)
     sta pinput_pending          // acc still 0
 
     setbits(VIA1.DDRA, %00100000)   // set FIRE (=SP2 on C64) as output
-    setbits(VIA1.portA, %00100000)  // set FIRE to high to tell VIC20 could read
+    vic_write(1)                    // pretend write mode
 
     setbits(VIA1.DDRA, %01000000)   // set CASETTE (=PC2 on C64) as output for manual interrupt triggering
     setbits(VIA1.portA, %01000000)  // set CASETTE (=PC2) to high
 
     setbits(VIA1.PCR, %11000000)    // set CB2 (=PA2 on C64) to manual
-    clearbits(VIA1.PCR, %11011111)  // set CB2 (=PA2 on C64) to manual and set low
+    vic_busy(0)                    // pretend we're not busy
     
     jsr cind
     rts
@@ -174,71 +183,51 @@ cind:
     sta VIC.BoC
     rts
 
-start_isr:
-    //BgC(7)
-    rts
-
-stop_isr:
-    //BgC(8)
-    rts
-
-#if LATER    
 // Interrupt driven read, finished when read_pending == 1
 start_isr:
-rin:
-    jsr $beef                        // operand modified
-    poke8_(CIA2.ICR, $7f)            // stop all interrupts
-    poke16_(STD.NMI_VEC, flag_isr)   // reroute NMI
-#if HANDLE_MEM_BANK
-    poke16_($fffa, flag_isr)         // also HW vector, if KERNAL is banked out (e.g. in soft80 mode, credits @groepaz)
-#endif
-    poke8_(CIA2.SDR, $ff)            // Signal C64 is in read-mode (safe for CIA)
-    poke8_(CIA2.DIRB, $00)           // direction bit 0 -> input
-    setbits(CIA2.DIRA, %00000100)    // PortA r/w for PA2
-    clearbits(CIA2.PORTA, %11111011) // set PA2 to low to signal we're ready to receive
-    lda CIA2.ICR                     // clear interrupt flags by reading
-    poke8_(CIA2.ICR, %10010000)      // enable FLAG pin as interrupt source
+    sei
+    jsr rind
+    //poke8_(VIA1.IER, %01111111)      // stop interrupt on CB1
+
+    poke8_(VIA1.DDRB, $00)           // direction bits 0 -> input
+    clearbits(VIA1.PCR, %11101111)  // CB1 High->Low edge trigger
+    setbits(VIA1.PCR, %00010000)  // CB1 as interrupt source
+    setbits(VIA1.IER, %10010000)  // Interrupt on CB1
+    //setbits(VIA1.AUX, %00000010)  // latch CB1
+    clearbits(VIA1.AUX, %11111101)  // clear latch CB1
     poke8_(read_pending, $01)
+    poke16_(STD.NMI_VEC, vic_isr)
+
+    // make sure CB1 flag is clear
+    clear_cb1()
+
+    vic_write(0)    // now we're in read mode
+    vic_busy(0)
+    cli
     rts
 
 stop_isr:
-    poke8_(CIA2.ICR, $7f)            // stop all interrupts
+    poke8_(VIA1.IER, %00010000)      // stop interrupt on CB1
     poke16_(STD.NMI_VEC, STD.CONTNMI)    // reroute NMI
-#if HANDLE_MEM_BANK
-    poke16_($fffa, STD.NMI_VEC)
-#endif
-    poke8_(CIA2.DIRB, $00)           // direction bits 0 -> input
-    poke8_(CIA2.ICR, $80)            // enable interrupts    
-rif:
-    jsr $beef                        // operand modified
+    poke8_(VIA1.DDRB, $00)           // direction bits 0 -> input
+    poke8_(VIA1.IER, $80)            // enable interrupts
+    jsr cind                        
     rts
-    
-flag_isr:
+
+vic_isr:
     sei
     save_regs()
-#if HANDLE_MEM_BANK
-    lda $01
-    pha               // save mem layout
-    poke8_($01, $37)  // std mem layout for I/O access
-#endif
-    lda CIA2.ICR
-    and #%10000 // FLAG pin interrupt (bit 4)
-jm: bne nread  // modified operand in case of loop read
-#if HANDLE_MEM_BANK
-    pla             // restore mem layout
-    sta $01
-    jmp STD.CONTNMI
-//    restore_regs()
-//    rti
-#else
-    jmp STD.CONTNMI
-#endif
-    
+    lda VIA1.IFR
+    and #%00010000
+jm: bne nread   // modified operand in case of loop read
+    jmp $feb2    // jump to original vic20 NMI handler
+
     // receive char now
 nread:
-    setbits(CIA2.PORTA, %00000100)  // set PA2 to high to signal we're busy receiving
+    vic_busy(1)   // tell esp we're busy receiving
+    //BoCinc()                     // show we're in vic_isr
     ldy #$00
-    lda CIA2.PORTB  // read chr from the parallel port B
+    lda VIA1.portB  // read chr from the parallel port B
     sta (buffer), y
     inc buffer      
     bne !+
@@ -250,13 +239,14 @@ nread:
     poke8_(read_pending, $00)
     
 outnread:
-    clearbits(CIA2.PORTA, %11111011)   // clear PA2 to low to signal we're ready to receive
-#if HANDLE_MEM_BANK
-    pla         // restore mem layout
-    sta $01
-#endif
+    //delay(1000)
+    BoCinc()
+    vic_handshake() // ACK character
+    vic_busy(0)   // tell esp we're not busy anymore
     restore_regs()
     rti
+
+#if LATER    
 
 loopread:
     setbits(CIA2.PORTA, %00000100)  // set PA2 to high to signal we're busy receiving
@@ -284,94 +274,41 @@ rt4:sbc $beef       // modified to point to ccgms
     restore_regs()
     rti
 
-
-
-// optimized sync read for small reads (<128 bytes)
-// dst address must be poked in _rf+1, x register holds len
-sync_read_f:
-    poke8_(CIA2.SDR, $ff)
-    poke8_(CIA2.DIRB, $00)          // direction bit 0 -> input
-    setbits(CIA2.DIRA, %00000100)   // PortA r/w for PA2
-    ldy #$00
-!nc_f:
-    clearbits(CIA2.PORTA, %11111011)  // set PA2 to low to signal we're ready to receive
-!:  
-    lda CIA2.ICR
-    and #%00010000
-    beq !-
-    setbits(CIA2.PORTA, %00000100)  // set PA2 to high to signal we're busy _f
-    lda CIA2.PORTB
-_rf:
-    sta $beef,y                     // operand modified
-    iny
-    dex
-    bne !nc_f-
-!:
-    clearbits(CIA2.PORTA, %11111011)
-    rts
 #endif // LATER
-
-vic_isr:
-    sei
-    save_regs()
-    lda VIA1.IFR
-    and #%00010000
-    beq !out+
-    vic_busy(1)  // tell esp we're busy
-    //BoCinc()                     // show we're in vic_isr
-    lda VIA1.portB
-    sta P.zpp2 + 1
-    poke8_(P.zpp2, 1)
-    
-    restore_regs()
-    rti
-!out:
-    //BgCinc()
-    jmp $feb2    // jump to original vic20 NMI handler
 
 setup_read:
     jsr rind
     poke8_(VIA1.DDRB, $00)           // direction bits 0 -> input
     clearbits(VIA1.PCR, %11101111)  // CB1 High->Low edge trigger
     //setbits(VIA1.PCR, %00010000)  // CB1 as interrupt source
-    setbits(VIA1.IER, %10010000)  // Interrupt on CB1
+    //setbits(VIA1.IER, %10010000)  // Interrupt on CB1
     setbits(VIA1.AUX, %00000010)  // latch CB1
-//#if LATER    
-    poke8_(P.zpp2, 0)
-    sei
-    poke16_(STD.NMI_VEC, vic_isr)
-    cli
-//#endif
+    clear_cb1()
     vic_write(0)
     rts
 
 close_read:
-
-    sei
-    poke16_(STD.NMI_VEC, STD.CONTNMI)
-    cli
     jsr cind
-    setbits(VIA1.IER, %00010000)  // clear interrupt on CB1
-    vic_busy(0)
-
     rts
 
 sync_read:
     jsr setup_read
+    vic_busy(0)   // tell esp we're ready to receive
     ldy #$00
-    jmp ft
+    beq ft
 !next:
-    BoCinc()                     // show we're in sync_read
+    //BoCinc()                     // show we're in sync_read
+    vic_busy(0)   // tell esp we're ready to receive
+    delay(3000)
     vic_handshake()
-ft: vic_busy(0)   // tell esp we're ready to receive
+ft: 
 !: 
     //BoCinc()                     // show we're in sync_read
-    //lda VIA1.IFR
-    //and #%00010000
-    lda P.zpp2
+    lda VIA1.IFR
+    and #%00010000
     beq !-
-    poke8_(P.zpp2, 0)
-    lda P.zpp2+1
+    vic_busy(1)
+    lda VIA1.portB
     sta (buffer), y
     inc buffer      
     bne !+
@@ -381,6 +318,40 @@ ft: vic_busy(0)   // tell esp we're ready to receive
     bcc !next-
     vic_handshake() // ACK last char
     jmp close_read
+
+// optimized sync read for small reads (<128 bytes)
+// dst address must be poked in _rf+1, x register holds len
+sync_read_f:
+    poke8_(VIA1.DDRB, $00)           // direction bits 0 -> input
+    clearbits(VIA1.PCR, %11101111)  // CB1 High->Low edge trigger
+    //setbits(VIA1.IER, %10010000)  // Interrupt on CB1
+    setbits(VIA1.AUX, %00000010)  // latch CB1
+    clear_cb1()
+    vic_write(0)    // now we're in read mode
+    ldy #$00
+    beq ft_f
+    vic_busy(0)
+    
+!nc_f:
+    vic_busy(0)
+    vic_handshake()
+ft_f:
+!:  
+    BoCinc()                     // show we're in sync_read_f
+    lda VIA1.IFR
+    and #%00010000
+    beq !-
+    vic_busy(1)
+    //delay(3000)
+    lda VIA1.portB
+_rf:
+    sta $beef,y                     // operand modified
+    iny
+    dex
+    bne !nc_f-
+!:
+    vic_busy(0)
+    rts
 
 // write routines
 setup_write:
@@ -395,7 +366,7 @@ setup_write:
 close_write:
     vic_busy(0)
     poke8_(VIA1.DDRB, $00)           // set for input, to avoid conflict by mistake
-    vic_write(0)
+    vic_write(1)
     jsr cind                         
     cli
     rts
@@ -452,8 +423,123 @@ _wf:
     inc _wf+1                        // advance read address
     dex
     bne !n-
-
     jmp close_write
+
+trigger_pc2:
+    ldx #10
+!:
+    vic_handshake()
+    delay(30000)
+    BoCinc()                     // show we're in trigger_pc2
+    dex
+    bne !-
+    rts
+
+trigger_pa2:
+    ldx #10
+!:
+    vic_busy(1)   // tell esp we're busy
+    delay(30000)
+    vic_busy(0)
+    delay(30000)
+    BoCinc()                     
+    dex
+    bne !-
+    rts
+
+trigger_sp2:
+
+    ldx #10
+!:
+    vic_write(1)
+    delay(30000)
+    vic_write(0)
+    delay(30000)
+    BgCinc()                     
+    dex
+    bne !-
+    rts
+
+poll_isr:
+    poke8_(VIA1.DDRB, $00)           // direction bits 0 -> input
+    clearbits(VIA1.PCR, %11101111)  // CB1 High->Low edge trigger
+    //setbits(VIA1.PCR, %00010000)  // CB1 as interrupt source - don't use if polling
+    //setbits(VIA1.IER, %10010000)  // Interrupt on CB1
+    setbits(VIA1.AUX, %00000010)  // latch CB1
+    clear_cb1()
+    vic_write(0)
+    vic_busy(0)
+    ldx #1
+    stx $1120
+    stx $1120-1
+    stx $1120-2
+    stx $1120+1
+    stx $1120+2
+    stx $1120+3
+    stx $1120+4
+    stx $1120+5
+next:
+    BoCinc()                     // show we're in sync_read
+    lda VIA1.IFR
+    and #%00010000
+    beq next
+    vic_busy(1)
+    //delay(30000)
+    lda VIA1.portB
+    sta $1120+8
+    pha
+    and #%00000010
+    beq !+
+    inc $1120-1
+!:
+    pla
+    pha
+    and #%00000100
+    beq !+
+    inc $1120
+!:
+    pla
+    pha
+    and #%00001000
+    beq !+
+    inc $1120+1
+!:
+    pla
+    pha
+    and #%00010000
+    beq !+
+    inc $1120+2
+!:
+    pla
+    pha
+    and #%00100000
+    beq !+
+    inc $1120+3
+!:
+    pla
+    pha
+    and #%01000000
+    beq !+
+    inc $1120+4
+!:
+    pla
+    pha
+    and #%10000000
+    beq !+
+    inc $1120+5
+!:
+    pla
+    pha
+    and #%00000001
+    beq !+
+    inc $1120-2
+!:
+    pla
+    vic_busy(0)
+    jmp next
+    rts
+
+
 } // namespace parport
 
     
